@@ -11,9 +11,12 @@ contract Staking{
 
     /* ========== STATE VARIABLES ========== */
 
+    address public owner;
+
     IERC20 public rewardsToken;
-    uint256 public periodFinish = 0;
-    uint256 public rewardRate = 0;
+    IERC20 public stakingToken;
+    uint256 public periodFinish = 3 days;
+    uint256 public rewardRate = 1;
     uint256 public rewardsDuration = 7 days;
     uint256 public lastUpdateTime;
     uint256 public rewardPerTokenStored;
@@ -24,6 +27,27 @@ contract Staking{
     mapping(address => uint256) private _balances;
 
     uint256 private _totalSupply;
+
+    constructor(address _stakingToken, address _rewardToken) {
+        owner = msg.sender;
+        stakingToken = IERC20(_stakingToken);
+        rewardsToken = IERC20(_rewardToken);
+    }
+    
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");        
+        _;
+    }
+
+    modifier updateReward(address account) {
+        rewardPerTokenStored = rewardPerToken();
+        lastUpdateTime = lastTimeRewardApplicable();
+        if (account != address(0)) {
+            rewards[account] = earned(account);
+            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+        }
+        _;
+    }
 
     /* ========== VIEWS ========== */
 
@@ -39,6 +63,15 @@ contract Staking{
         return block.timestamp < periodFinish ? block.timestamp : periodFinish;
     }
 
+    function setRewardsDuration(uint256 _rewardsDuration) external onlyOwner() {
+        require(
+            block.timestamp > periodFinish,
+            "Previous rewards period must be complete before changing the duration for the new period"
+        );
+        rewardsDuration = _rewardsDuration;
+        emit RewardsDurationUpdated(rewardsDuration);
+    }
+
     function rewardPerToken() public view returns (uint256) {
         if (_totalSupply == 0) {
             return rewardPerTokenStored;
@@ -49,25 +82,29 @@ contract Staking{
             );
     }
 
+    function getRewardForDuration() external view returns (uint256) {
+        return rewardRate.mul(rewardsDuration);
+    }
+
     function earned(address account) public view returns (uint256) {
         return _balances[account].mul(rewardPerToken().sub(userRewardPerTokenPaid[account])).div(1e18).add(rewards[account]);
     }
     
     /* ========== SPECIFIC FUNCTIONS ========== */
   
-    function stake(address token, uint256 amount) external updateReward(msg.sender) {
+    function stake(uint256 amount) external updateReward(msg.sender) {
         require(amount > 0, "Amount must be greater than zero");        
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         _totalSupply=_totalSupply.add(amount);
         _balances[msg.sender] += amount;
         emit Staked(msg.sender, amount);
     }
 
-    function withdraw(address token, uint256 amount) external updateReward(msg.sender) {
+    function withdraw(uint256 amount) external updateReward(msg.sender) {
         require(_balances[msg.sender] >= amount, "Insufficient stake");
         _balances[msg.sender]=_balances[msg.sender].sub(amount);
         _totalSupply=_totalSupply.sub(amount);
-        IERC20(token).safeTransfer(msg.sender, amount);
+        stakingToken.safeTransfer(msg.sender, amount);
         emit Withdraw(msg.sender, amount);
     }
 
@@ -80,18 +117,32 @@ contract Staking{
         }
     }
 
-    modifier updateReward(address account) {
-        rewardPerTokenStored = rewardPerToken();
-        lastUpdateTime = lastTimeRewardApplicable();
-        if (account != address(0)) {
-            rewards[account] = earned(account);
-            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+    function notifyRewardAmount(uint256 reward) external updateReward(msg.sender) {
+        if (block.timestamp >= periodFinish) {
+            rewardRate = reward.div(rewardsDuration);
+        } else {
+            uint256 remaining = periodFinish.sub(block.timestamp);
+            uint256 leftover = remaining.mul(rewardRate);
+            rewardRate = reward.add(leftover).div(rewardsDuration);
         }
-        _;
+
+        // Ensure the provided reward amount is not more than the balance in the contract.
+        // This keeps the reward rate in the right range, preventing overflows due to
+        // very high values of rewardRate in the earned and rewardsPerToken functions;
+        // Reward + leftover must be less than 2^256 / 10^18 to avoid overflow.
+        uint balance = rewardsToken.balanceOf(address(this));
+        require(rewardRate <= balance.div(rewardsDuration), "Provided reward too high");
+
+        lastUpdateTime = block.timestamp;
+        periodFinish = block.timestamp.add(rewardsDuration);
+        emit RewardAdded(reward);
     }
+
+    
 
     event RewardAdded(uint256 reward);
     event Staked(address indexed user, uint256 amount);
     event Withdraw(address indexed user, uint256 amount);
     event RewardPaid(address indexed user, uint256 reward);
+    event RewardsDurationUpdated(uint256 newDuration);
 }
