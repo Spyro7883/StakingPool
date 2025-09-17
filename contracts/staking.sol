@@ -11,13 +11,13 @@ contract Staking{
 
     /* ========== STATE VARIABLES ========== */
 
-    address public owner;
+    address private owner;
 
-    IERC20 public rewardsToken;
-    IERC20 public stakingToken;
-    uint256 public periodFinish = 3 days;
-    uint256 public rewardRate = 1;
-    uint256 public rewardsDuration = 7 days;
+    IERC20 private rewardsToken;
+    IERC20 private stakingToken;
+    uint256 public periodFinish = 0;
+    uint256 public rewardRate = 0;
+    uint256 public rewardsDuration = 10 seconds;
     uint256 public lastUpdateTime;
     uint256 public rewardPerTokenStored;
     
@@ -33,6 +33,8 @@ contract Staking{
         stakingToken = IERC20(_stakingToken);
         rewardsToken = IERC20(_rewardToken);
     }
+
+    /* ========== MODIFIERS ========== */
     
     modifier onlyOwner() {
         require(msg.sender == owner, "Not owner");        
@@ -80,32 +82,40 @@ contract Staking{
             rewardPerTokenStored.add(
                 lastTimeRewardApplicable().sub(lastUpdateTime).mul(rewardRate).mul(1e18).div(_totalSupply)
             );
+    }   
+
+    function earned(address account) public view returns (uint256) {
+        return _balances[account].mul(rewardPerToken().sub(userRewardPerTokenPaid[account])).div(1e18).add(rewards[account]);
+    }
+
+    function notifyRewardsBalanceOf() external onlyOwner() view returns (uint256){
+        return rewardsToken.balanceOf(address(this));
+    }
+
+    function getRewardRate(uint256 reward) public view returns (uint256) {
+        return reward.div(rewardsDuration);
     }
 
     function getRewardForDuration() external view returns (uint256) {
         return rewardRate.mul(rewardsDuration);
-    }
-
-    function earned(address account) public view returns (uint256) {
-        return _balances[account].mul(rewardPerToken().sub(userRewardPerTokenPaid[account])).div(1e18).add(rewards[account]);
     }
     
     /* ========== SPECIFIC FUNCTIONS ========== */
   
     function stake(uint256 amount) external updateReward(msg.sender) {
         require(amount > 0, "Amount must be greater than zero");        
-        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         _totalSupply=_totalSupply.add(amount);
-        _balances[msg.sender] += amount;
+        _balances[msg.sender].add(amount);
         emit Staked(msg.sender, amount);
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);        
     }
 
     function withdraw(uint256 amount) external updateReward(msg.sender) {
         require(_balances[msg.sender] >= amount, "Insufficient stake");
         _balances[msg.sender]=_balances[msg.sender].sub(amount);
         _totalSupply=_totalSupply.sub(amount);
-        stakingToken.safeTransfer(msg.sender, amount);
         emit Withdraw(msg.sender, amount);
+        stakingToken.safeTransfer(msg.sender, amount);        
     }
 
     function getReward() public updateReward(msg.sender) {
@@ -117,7 +127,7 @@ contract Staking{
         }
     }
 
-    function notifyRewardAmount(uint256 reward) external updateReward(msg.sender) {
+    function notifyRewardAmount(uint256 reward) external updateReward(address(0)) {
         if (block.timestamp >= periodFinish) {
             rewardRate = reward.div(rewardsDuration);
         } else {
@@ -127,18 +137,16 @@ contract Staking{
         }
 
         // Ensure the provided reward amount is not more than the balance in the contract.
-        // This keeps the reward rate in the right range, preventing overflows due to
-        // very high values of rewardRate in the earned and rewardsPerToken functions;
-        // Reward + leftover must be less than 2^256 / 10^18 to avoid overflow.
+        
         uint balance = rewardsToken.balanceOf(address(this));
         require(rewardRate <= balance.div(rewardsDuration), "Provided reward too high");
 
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp.add(rewardsDuration);
         emit RewardAdded(reward);
-    }
+    }   
 
-    
+    /* ========== EVENTS ========== */
 
     event RewardAdded(uint256 reward);
     event Staked(address indexed user, uint256 amount);
