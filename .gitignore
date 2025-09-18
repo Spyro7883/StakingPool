@@ -20,3 +20,7 @@
 /coverage
 
 package-lock.json
+
+.env
+
+deployments

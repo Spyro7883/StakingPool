@@ -3,10 +3,9 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract Staking{
-    using SafeMath for uint256;
+contract Staking is ReentrancyGuard{
     using SafeERC20 for IERC20;
 
     /* ========== STATE VARIABLES ========== */
@@ -79,13 +78,11 @@ contract Staking{
             return rewardPerTokenStored;
         }
         return
-            rewardPerTokenStored.add(
-                lastTimeRewardApplicable().sub(lastUpdateTime).mul(rewardRate).mul(1e18).div(_totalSupply)
-            );
+            rewardPerTokenStored+((lastTimeRewardApplicable()-lastUpdateTime)*rewardRate*1e18)/_totalSupply;
     }   
 
     function earned(address account) public view returns (uint256) {
-        return _balances[account].mul(rewardPerToken().sub(userRewardPerTokenPaid[account])).div(1e18).add(rewards[account]);
+        return ((_balances[account]*(rewardPerToken()-userRewardPerTokenPaid[account]))/1e18)+rewards[account];
     }
 
     function notifyRewardsBalanceOf() external onlyOwner() view returns (uint256){
@@ -93,32 +90,32 @@ contract Staking{
     }
 
     function getRewardRate(uint256 reward) public view returns (uint256) {
-        return reward.div(rewardsDuration);
+        return reward/rewardsDuration;
     }
 
     function getRewardForDuration() external view returns (uint256) {
-        return rewardRate.mul(rewardsDuration);
+        return rewardRate*rewardsDuration;
     }
     
     /* ========== SPECIFIC FUNCTIONS ========== */
   
-    function stake(uint256 amount) external updateReward(msg.sender) {
+    function stake(uint256 amount) external nonReentrant updateReward(msg.sender) {
         require(amount > 0, "Amount must be greater than zero");        
-        _totalSupply=_totalSupply.add(amount);
-        _balances[msg.sender].add(amount);
+        _totalSupply+=amount;
+        _balances[msg.sender]+=amount;
         emit Staked(msg.sender, amount);
         stakingToken.safeTransferFrom(msg.sender, address(this), amount);        
     }
 
-    function withdraw(uint256 amount) external updateReward(msg.sender) {
+    function withdraw(uint256 amount) external nonReentrant updateReward(msg.sender) {
         require(_balances[msg.sender] >= amount, "Insufficient stake");
-        _balances[msg.sender]=_balances[msg.sender].sub(amount);
-        _totalSupply=_totalSupply.sub(amount);
+        _balances[msg.sender]-=amount;
+        _totalSupply-=amount;
         emit Withdraw(msg.sender, amount);
         stakingToken.safeTransfer(msg.sender, amount);        
     }
 
-    function getReward() public updateReward(msg.sender) {
+    function getReward() public nonReentrant updateReward(msg.sender) {
         uint256 reward = rewards[msg.sender];
         if (reward > 0) {
             rewards[msg.sender] = 0;
@@ -129,20 +126,20 @@ contract Staking{
 
     function notifyRewardAmount(uint256 reward) external updateReward(address(0)) {
         if (block.timestamp >= periodFinish) {
-            rewardRate = reward.div(rewardsDuration);
+            rewardRate = reward/rewardsDuration;
         } else {
-            uint256 remaining = periodFinish.sub(block.timestamp);
-            uint256 leftover = remaining.mul(rewardRate);
-            rewardRate = reward.add(leftover).div(rewardsDuration);
+            uint256 remaining = periodFinish-block.timestamp;
+            uint256 leftover = remaining*rewardRate;
+            rewardRate = (reward+leftover)/rewardsDuration;
         }
 
         // Ensure the provided reward amount is not more than the balance in the contract.
         
         uint balance = rewardsToken.balanceOf(address(this));
-        require(rewardRate <= balance.div(rewardsDuration), "Provided reward too high");
+        require(rewardRate <= balance/rewardsDuration, "Provided reward too high");
 
         lastUpdateTime = block.timestamp;
-        periodFinish = block.timestamp.add(rewardsDuration);
+        periodFinish = block.timestamp+rewardsDuration;
         emit RewardAdded(reward);
     }   
 
