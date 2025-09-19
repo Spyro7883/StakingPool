@@ -1,7 +1,8 @@
 import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
 
-export default buildModule("Tokens", (m) => {
+export default buildModule("DeployStaking", (m) => {
   const tokenA = m.contract("tokenA");
   const tokenB = m.contract("tokenB");
-  return { tokenA, tokenB };
+  const staking = m.contract("Staking", [tokenA, tokenB]);
+  return { tokenA, tokenB, staking };
 });
