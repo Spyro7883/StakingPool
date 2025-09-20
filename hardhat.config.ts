@@ -2,12 +2,22 @@ import type { HardhatUserConfig } from "hardhat/config";
 
 import { configVariable } from "hardhat/config";
 
-import hardhatNetworkHelpers from "@nomicfoundation/hardhat-network-helpers";
-import hardhatKeystore from "@nomicfoundation/hardhat-keystore";
+import hardhatMocha from "@nomicfoundation/hardhat-mocha";
 import hardhatEthers from "@nomicfoundation/hardhat-ethers";
+import hardhatEthersChai from "@nomicfoundation/hardhat-ethers-chai-matchers";
+import hardhatKeystore from "@nomicfoundation/hardhat-keystore";
+import hardhatNetworkHelpers from "@nomicfoundation/hardhat-network-helpers";
+import hardhatVerify from "@nomicfoundation/hardhat-verify";
 
 const config: HardhatUserConfig = {
-  plugins: [hardhatEthers, hardhatKeystore, hardhatNetworkHelpers],
+  plugins: [
+    hardhatMocha,
+    hardhatEthers,
+    hardhatEthersChai,
+    hardhatKeystore,
+    hardhatNetworkHelpers,
+    hardhatVerify,
+  ],
   solidity: {
     profiles: {
       default: {
