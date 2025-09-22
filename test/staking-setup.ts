@@ -1,27 +1,40 @@
 import { expect } from "chai";
 
 import { network } from "hardhat";
+import type {
+  TokenA__factory,
+  TokenB__factory,
+  Staking__factory,
+} from "../types/ethers-contracts/index.ts";
 
 async function setupContracts() {
   const { ethers } = await network.connect();
 
-  const [owner] = await ethers.getSigners();
+  const [owner, otherAccount] = await ethers.getSigners();
 
-  const TokenA = await ethers.getContractFactory("tokenA");
-  const TokenB = await ethers.getContractFactory("tokenB");
-  const tokenA = await TokenA.deploy();
-  const tokenB = await TokenB.deploy();
+  const block = await ethers.provider.getBlock("latest");
+
+  const TokenAFactory = (await ethers.getContractFactory(
+    "tokenA"
+  )) as TokenA__factory;
+  const TokenBFactory = (await ethers.getContractFactory(
+    "tokenB"
+  )) as TokenB__factory;
+  const tokenA = await TokenAFactory.deploy();
+  const tokenB = await TokenBFactory.deploy();
   await tokenA.waitForDeployment();
   await tokenB.waitForDeployment();
 
-  const Staking = await ethers.getContractFactory("Staking");
-  const staking = await Staking.deploy(
+  const StakingFactory = (await ethers.getContractFactory(
+    "Staking"
+  )) as Staking__factory;
+  const staking = await StakingFactory.deploy(
     await tokenA.getAddress(),
     await tokenB.getAddress()
   );
   await staking.waitForDeployment();
 
-  return { tokenA, tokenB, staking, owner };
+  return { tokenA, tokenB, staking, owner, otherAccount, block };
 }
 
 describe("Deploy Contracts", () => {
@@ -81,5 +94,35 @@ describe("Staking View Functions", () => {
     const rewardForDuration = await staking.getRewardForDuration();
 
     expect(rewardForDuration).to.equal(rewardRate * rewardsDuration);
+  });
+  it("return rewards balance", async () => {
+    const { networkHelpers } = await network.connect();
+    const { tokenB, staking } = await networkHelpers.loadFixture(
+      setupContracts
+    );
+    const notifyRewards = await staking.notifyRewardsBalanceOf();
+    const rewardsToken = await tokenB.balanceOf(staking.getAddress());
+    expect(notifyRewards).to.equal(rewardsToken);
+  });
+  it("revert error, not owner", async () => {
+    const { networkHelpers } = await network.connect();
+    const { staking, otherAccount } = await networkHelpers.loadFixture(
+      setupContracts
+    );
+    await expect(
+      staking.connect(otherAccount).notifyRewardsBalanceOf()
+    ).to.be.revertedWith("Not owner");
+  });
+  it("return last time reward", async () => {
+    const { networkHelpers } = await network.connect();
+    const { staking, block } = await networkHelpers.loadFixture(setupContracts);
+    const periodFinish = await staking.periodFinish();
+    const lastTimeReward = await staking.lastTimeRewardApplicable();
+    if (!block || block.timestamp === undefined) {
+      throw new Error("Block doesn't exist");
+    }
+    const testReward =
+      block.timestamp < periodFinish ? block.timestamp : periodFinish;
+    expect(testReward).to.equal(lastTimeReward);
   });
 });

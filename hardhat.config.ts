@@ -8,6 +8,7 @@ import hardhatEthersChai from "@nomicfoundation/hardhat-ethers-chai-matchers";
 import hardhatKeystore from "@nomicfoundation/hardhat-keystore";
 import hardhatNetworkHelpers from "@nomicfoundation/hardhat-network-helpers";
 import hardhatVerify from "@nomicfoundation/hardhat-verify";
+import hardhatTypechain from "@nomicfoundation/hardhat-typechain";
 
 const config: HardhatUserConfig = {
   plugins: [
@@ -17,6 +18,7 @@ const config: HardhatUserConfig = {
     hardhatKeystore,
     hardhatNetworkHelpers,
     hardhatVerify,
+    hardhatTypechain,
   ],
   solidity: {
     profiles: {
