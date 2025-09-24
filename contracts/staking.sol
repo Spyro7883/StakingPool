@@ -85,7 +85,7 @@ contract Staking is ReentrancyGuard{
         return ((_balances[account]*(rewardPerToken()-userRewardPerTokenPaid[account]))/1e18)+rewards[account];
     }
 
-    function notifyRewardsBalanceOf() external onlyOwner() view returns (uint256){
+    function rewardsBalance() external onlyOwner() view returns (uint256){
         return rewardsToken.balanceOf(address(this));
     }
 
@@ -124,7 +124,7 @@ contract Staking is ReentrancyGuard{
         }
     }
 
-    function notifyRewardAmount(uint256 reward) external updateReward(address(0)) {
+    function notifyRewardAmount(uint256 reward) external onlyOwner updateReward(address(0)) {
         if (block.timestamp >= periodFinish) {
             rewardRate = reward/rewardsDuration;
         } else {
