@@ -202,3 +202,83 @@ describe("Staking View Functions", () => {
     expect(calculatedEarned).to.equal(contractEarned);
   });
 });
+
+describe("Staking Specific Functions", () => {
+  it("user calls stake function with zero amount", async () => {
+    const { networkHelpers } = await network.connect();
+    const { staking } = await networkHelpers.loadFixture(setupContracts);
+
+    await expect(staking.stake(0n)).to.be.revertedWith(
+      "Amount must be greater than zero"
+    );
+  });
+  it("user stakes amount", async () => {
+    const { networkHelpers } = await network.connect();
+    const { tokenA, staking, owner } = await networkHelpers.loadFixture(
+      setupContracts
+    );
+    const amount = 100n;
+    await tokenA.connect(owner).approve(await staking.getAddress(), amount);
+    await expect(staking.connect(owner).stake(amount))
+      .to.emit(staking, "Staked")
+      .withArgs(owner.address, amount);
+
+    expect(await staking.totalSupply()).to.equal(amount);
+    expect(await staking.balanceOf(owner.address)).to.equal(amount);
+  });
+  it("user calls withdraw function with insufficient stake", async () => {
+    const { networkHelpers } = await network.connect();
+    const { staking, owner } = await networkHelpers.loadFixture(setupContracts);
+    await expect(staking.connect(owner).withdraw(1n)).to.be.revertedWith(
+      "Insufficient stake"
+    );
+  });
+  it("user withdraws all stake", async () => {
+    const { networkHelpers } = await network.connect();
+    const { tokenA, staking, owner } = await networkHelpers.loadFixture(
+      setupContracts
+    );
+    const amount = 100n;
+    await tokenA.connect(owner).approve(await staking.getAddress(), amount);
+    await staking.connect(owner).stake(amount);
+    await expect(staking.connect(owner).withdraw(amount))
+      .to.emit(staking, "Withdraw")
+      .withArgs(owner.address, amount);
+
+    expect(await staking.totalSupply()).to.equal(0n);
+    expect(await staking.balanceOf(owner.address)).to.equal(0n);
+  });
+  it("does not emit RewardPaid since there are no rewards", async () => {
+    const { networkHelpers } = await network.connect();
+    const { staking, owner } = await networkHelpers.loadFixture(setupContracts);
+
+    await expect(staking.connect(owner).getReward()).to.not.emit(
+      staking,
+      "RewardPaid"
+    );
+
+    expect(await staking.rewards(owner.address)).to.equal(0n);
+  });
+  it("emits RewardPaid and pays out reward to user when available", async () => {
+    const { networkHelpers } = await network.connect();
+    const { tokenA, tokenB, staking, owner, time } =
+      await networkHelpers.loadFixture(setupContracts);
+    const stakeAmount = 100n;
+    const rewardAmount = 1000n;
+    await tokenB.transfer(await staking.getAddress(), rewardAmount);
+    await staking.notifyRewardAmount(rewardAmount);
+    await tokenA.approve(await staking.getAddress(), stakeAmount);
+    await staking.stake(stakeAmount);
+
+    await time.increase(5);
+
+    const userBefore = await tokenB.balanceOf(owner.address);
+    const tx = await staking.connect(owner).getReward();
+    await expect(tx).to.emit(staking, "RewardPaid");
+    const userAfter = await tokenB.balanceOf(owner.address);
+    const paid = userAfter - userBefore;
+
+    expect(paid).to.be.greaterThan(0n);
+    expect(await staking.rewards(owner.address)).to.equal(0n);
+  });
+});
