@@ -281,4 +281,79 @@ describe("Staking Specific Functions", () => {
     expect(paid).to.be.greaterThan(0n);
     expect(await staking.rewards(owner.address)).to.equal(0n);
   });
+  it("reverts for non-owner", async () => {
+    const { networkHelpers } = await network.connect();
+    const { staking, otherAccount } = await networkHelpers.loadFixture(
+      setupContracts
+    );
+
+    await expect(
+      staking.connect(otherAccount).notifyRewardAmount(99n)
+    ).to.be.revertedWith("Not owner");
+  });
+  it("reverts if rewards are too high", async () => {
+    const { networkHelpers } = await network.connect();
+    const { staking } = await networkHelpers.loadFixture(setupContracts);
+
+    await expect(staking.notifyRewardAmount(1000n)).to.be.revertedWith(
+      "Provided reward too high"
+    );
+  });
+  it("starts a new period when idle", async () => {
+    const { networkHelpers, ethers } = await network.connect();
+    const { tokenB, staking, time } = await networkHelpers.loadFixture(
+      setupContracts
+    );
+
+    const reward = 700n;
+    const duration = await staking.rewardsDuration();
+    await tokenB.transfer(await staking.getAddress(), reward);
+
+    await expect(await staking.notifyRewardAmount(reward))
+      .to.emit(staking, "RewardAdded")
+      .withArgs(reward);
+
+    const ts = await staking.lastUpdateTime();
+
+    expect(await staking.rewardRate()).to.equal(reward / duration);
+    expect(await staking.lastUpdateTime()).to.equal(ts);
+    expect(await staking.periodFinish()).to.equal(ts + duration);
+  });
+  it("adds leftover before finish and updates rewardRate", async () => {
+    const { networkHelpers } = await network.connect();
+    const { tokenB, staking, time } = await networkHelpers.loadFixture(
+      setupContracts
+    );
+
+    const duration = await staking.rewardsDuration();
+
+    const firstReward = 700n;
+    const secondReward = 300n;
+
+    await tokenB.transfer(await staking.getAddress(), firstReward);
+    await staking.notifyRewardAmount(firstReward);
+
+    const firstRate = await staking.rewardRate();
+    const firstFinish = await staking.periodFinish();
+
+    const delta = 3n;
+
+    const leftover = delta * firstRate;
+    const need = secondReward + leftover;
+    const bal = await tokenB.balanceOf(await staking.getAddress());
+    if (bal < need) {
+      await tokenB.transfer(await staking.getAddress(), need - bal);
+    }
+
+    await time.setNextBlockTimestamp(firstFinish - delta);
+
+    await staking.notifyRewardAmount(secondReward);
+
+    const secondRate = (secondReward + leftover) / duration;
+
+    expect(await staking.rewardRate()).to.equal(secondRate);
+
+    const now = await time.latest();
+    expect(await staking.periodFinish()).to.equal(BigInt(now) + duration);
+  });
 });
